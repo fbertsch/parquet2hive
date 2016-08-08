@@ -57,7 +57,7 @@ def get_versions(bucket, prefix):
 		in sorted(result, key = lambda x : -x[2])]
 
 
-def main(dataset, version = None):
+def main(dataset, recent_version = False, version = None):
     m = re.search("s3://([^/]*)/(.*)", dataset)
     bucket_name = m.group(1)
     prefix = m.group(2)
@@ -68,6 +68,11 @@ def main(dataset, version = None):
 	
     if version is not None:
 	versions = [v for v in versions if v[2] == version]
+	if not versions:
+	    sys.stderr.write("No schemas available with that version")
+
+    if recent_version:
+	versions = [max(versions, key = lambda x : int(x[2][1:]))]
 
     for (version_prefix, dataset_name, version) in versions:
         sample = ""
@@ -173,12 +178,19 @@ if __name__ == "__main__":
 			help="S3 path to Parquet dataset with the following layout s3://BUCKET/DATASET/vVERSION/DIM=VALUE/.../DIM=VALUE/FILE")
 
     parser.add_argument('--dversion', '-dv', default=None,
-			help="Specify version of the dataset to use with format vyyyymmdd, e.g. v20160514" )
+			help="Specify version of the dataset to use with format vyyyymmdd, e.g. v20160514. Cannot be used with rversion" )
+
+    parser.add_argument('--rversion', '-rv', action='store_true',
+			help='Store only the most recent version of the dataset, cannot be used with dversion')
 
     args = parser.parse_args()
 
+    if args.rversion and args.dversion is not None:
+        sys.stderr.write('Cannot use both --dversion and --rversion')
+	sys.exit()
+
     try:
-        main(args.dataset[0], args.dversion)
+        main(args.dataset[0], args.rversion, args.dversion)
     except Exception as e:
         print "Failure to parse dataset, {}".format(str(e))
         exit(-1)
