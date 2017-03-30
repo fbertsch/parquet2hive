@@ -2,6 +2,7 @@ import re
 import sys
 import struct
 
+import argparse
 import boto3
 import botocore
 
@@ -35,6 +36,70 @@ udf = {}
 
 class ParquetFormatError(Exception):
     pass
+
+
+def run(args):
+    """Run parquet2hive with args.
+
+    :param args, list of arguments
+    """
+    parsed_args = parse_args(args)
+    if parsed_args.all:
+        try:
+            return 0, load_prefix(parsed_args.dataset[0], parsed_args.success_only, parsed_args.use_last_versions, parsed_args.exclude_regex, parsed_args.sql)
+        except Exception as e:
+            return -1, "Failed to load prefix, {}".format(str(e))
+    else:
+        try:
+            return 0, get_bash_cmd(parsed_args.dataset[0], parsed_args.success_only, parsed_args.use_last_versions, parsed_args.dataset_version, parsed_args.alias, parsed_args.exclude_regex, parsed_args.sql)
+        except Exception as e:
+            return -1, "Failure to parse dataset, {}".format(str(e))
+
+
+def parse_args(args):
+    """Parse parquet2hive args
+
+    :param args, list of arguments to parse
+    """
+    parser = argparse.ArgumentParser(description="Parquet dataset importer for Hive",
+                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+
+    parser.add_argument('dataset', nargs=1, metavar=('dataset',),
+                        help="S3 path to Parquet dataset with the following layout s3://BUCKET/DATASET/vVERSION/DIM=VALUE/.../DIM=VALUE/FILE")
+
+    parser.add_argument('--all', action='store_true',
+                        help='Process all datasets at this s3 location')
+
+    parser.add_argument('--success-only', '-so', action='store_true',
+                        help='Only process partitions that contain a _SUCCESS file')
+
+    parser.add_argument('--dataset-version', '-dv', default=None,
+                        help="Specify version of the dataset to use with format vyyyymmdd, e.g. v20160514. Cannot be used with --use-last-versions")
+
+    parser.add_argument('--use-last-versions', '-ulv', nargs='?', const=1, type=int, default=None,
+                        help='Load only the most recent version of the dataset, cannot be used with --dataset-version. Defaults to 1')
+
+    parser.add_argument('--alias', type=str, default=None,
+                        help='Use an alternate name for this dataset')
+
+    parser.add_argument('--exclude-regex', type=str, default=None, nargs='*',
+                        help='A regex pattern which causes any objects that match it to be ignored')
+
+    parser.add_argument('--sql', action='store_true',
+                        help='Whether tool should output hive-cli statements or just the raw SQL')
+
+    _args = parser.parse_args(args)
+
+    if _args.all and (_args.dataset_version is not None or _args.alias is not None):
+        sys.stderr.write('Cannot use dataset-version or alias options with --all')
+        sys.exit()
+
+    if _args.use_last_versions and _args.dataset_version is not None:
+        sys.stderr.write('Cannot use both --dataset-version and --use-last-versions')
+        sys.exit()
+
+    return _args
+
 
 def load_prefix(s3_loc, success_only=None, recent_versions=None, exclude_regex=None, just_sql=False):
     """Get a bash command which will load every dataset in a bucket at a prefix.
